@@ -1,11 +1,22 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws/client"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/iam"
+	"io"
+	"log"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 )
 var BLACKHOLE_GROUPNAME,
 	ACTION_TOPIC_ARN,
@@ -25,12 +36,48 @@ func main() {
 }
 
 type Event struct {
-}
-
-func LambdaHandler(ctx context.Context, name Event) (string, error) {
+	Source string `json:"source"`
 
 }
 
+func LambdaHandler(ctx context.Context, event Event) (string, error) {
+
+	eventMarshal, marshalError := json.Marshal(event)
+	checkError(marshalError)
+	fmt.Printf("Received event: " + string(eventMarshal))
+	iam_client_session, sessionError := session.NewSession()
+	checkError(sessionError)
+	iam_client := iam.New(iam_client_session)
+	if event.Source == "aws.iam" {
+		process_IAMEvent(event, ctx, iam_client)
+	} else {
+		process_UsersCron(iam_client)
+	}
+
+	return "", nil
+
+}
+
+func process_IAMEvent(event Event, ctx context.Context, iam_client *iam.IAM)  {
+	
+}
+
+func process_UsersCron(iam_client *iam.IAM) {
+	max_age := get_max_password_age(iam_client)
+	listAccountAliasesOutput, err :=  iam_client.ListAccountAliases(&iam.ListAccountAliasesInput{})
+	checkErrorWithMessage(err, "")
+	account_name := listAccountAliasesOutput.AccountAliases[0]
+
+	credential_report := get_credential_report(iam_client)
+}
+
+func get_max_password_age(iam_client *iam.IAM) *int64 {
+	response, getAccountPasswordPolicyError := iam_client.GetAccountPasswordPolicy(&iam.GetAccountPasswordPolicyInput{})
+	if getAccountPasswordPolicyError != nil {
+		fmt.Printf("Unexpected error in get_max_password_age: %s" + getAccountPasswordPolicyError.Error())
+	}
+	return response.PasswordPolicy.MaxPasswordAge
+}
 func init()  {
 	BLACKHOLE_GROUPNAME, ok := os.LookupEnv("BLACKHOLE_GROUPNAME")
 	checkEnvError(ok, BLACKHOLE_GROUPNAME)
@@ -81,5 +128,41 @@ func checkEnvError(ok bool, key string) {
 	if !ok {
 		fmt.Println("Key Error: " + key + "not found in env")
 		os.Exit(1)
+	}
+}
+func checkErrorWithMessage(err error, msg string)  {
+	if err != nil {
+		fmt.Printf(msg, err.Error())
+	}
+}
+
+func checkError(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func get_credential_report(iam_client *iam.IAM) []interface{} {
+	resp1, err := iam_client.GenerateCredentialReport(&iam.GenerateCredentialReportInput{})
+	checkError(err)
+	if *resp1.State  == "COMPLETE" {
+		response, err := iam_client.GetCredentialReport(&iam.GetCredentialReportInput{})
+		checkError(err)
+		credential_report_csv := response.Content
+		reader := csv.NewReader(bytes.NewReader(credential_report_csv))
+		var credential_report []interface{}
+		for {
+			line, err := reader.Read()
+			if err == io.EOF {
+				break
+			} else if err != nil {
+				checkError(err)
+			}
+			credential_report = append(credential_report, line)
+		}
+		return credential_report
+	} else {
+		time.Sleep(2 * time.Second)
+		return get_credential_report(iam_client)
 	}
 }
