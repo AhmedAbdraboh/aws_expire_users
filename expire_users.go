@@ -41,8 +41,22 @@ func main() {
 	lambda.Start(LambdaHandler)
 }
 
+type RequestParameters struct {
+	UserName string `json:"userName"`
+}
+
+type ResponseElements struct {
+	LoginProfile LoginProfile `json:"loginProfile"`
+}
+
+type LoginProfile struct {
+	UserName string `json:"userName"`
+}
+
 type EventDetail struct {
-	EventName string `json:"eventName"`
+	EventName         string            `json:"eventName"`
+	RequestParameters RequestParameters `json:"requestParameters"`
+	ResponseElements  ResponseElements  `json:"responseElements"`
 }
 type Event struct {
 	Source string      `json:"source"`
@@ -81,6 +95,70 @@ func process_IAMEvent(event Event, ctx context.Context, iam_client *iam.IAM) {
 
 }
 
+func process_EnableMFADevice(event Event, ctx context.Context) {
+	username := event.Detail.RequestParameters.UserName
+	iam_client_session, sessionError := session.NewSession()
+	checkError(sessionError)
+	iam_client := iam.New(iam_client_session)
+	response, _ := iam_client.ListMFADevices(&iam.ListMFADevicesInput{UserName: &username})
+	if len(response.MFADevices) >= 1 {
+		fmt.Println(username + " has activated their MFA. Removing from blackhole Group")
+		remove_user_from_blackhole(username)
+	} else {
+		fmt.Println(username + " has no MFA. Adding to blackhole Group")
+		add_user_to_blackhole(username, iam_client)
+	}
+	fmt.Println("EnableMFADevice Execution Complete")
+
+}
+func process_CreateLoginProfile(event Event, ctx context.Context) {
+	username := event.Detail.ResponseElements.LoginProfile.UserName
+
+	iam_client_session, sessionError := session.NewSession()
+	checkError(sessionError)
+	iam_client := iam.New(iam_client_session)
+	response, _ := iam_client.ListMFADevices(&iam.ListMFADevicesInput{UserName: &username})
+	if len(response.MFADevices) == 0 {
+		fmt.Println(username + " does not have MFA. Adding to blackhole Group")
+		add_user_to_blackhole(username, iam_client)
+	} else {
+		fmt.Println(username + " has an MFA. Removing from blackhole Group")
+		remove_user_from_blackhole(username)
+	}
+
+	fmt.Println("CreateLoginProfile Execution Complete")
+
+}
+func process_DeactivateMFADevice(event Event, ctx context.Context) {
+	username := event.Detail.RequestParameters.UserName
+	iam_client_session, sessionError := session.NewSession()
+	checkError(sessionError)
+	iam_client := iam.New(iam_client_session)
+	response, err := iam_client.ListMFADevices(&iam.ListMFADevicesInput{UserName: &username})
+	if err != nil {
+		fmt.Printf("%s no longer exists", username)
+		return
+	}
+
+	if len(response.MFADevices) == 0 {
+		fmt.Println(username + " does not have MFA. Adding to blackhole Group")
+		add_user_to_blackhole(username, iam_client)
+	} else {
+		fmt.Println(username + " has an MFA. Removing from blackhole Group")
+		remove_user_from_blackhole(username)
+	}
+
+}
+
+func remove_user_from_blackhole(username string) {
+	iam_client_session, sessionError := session.NewSession()
+	checkError(sessionError)
+	iam_client := iam.New(iam_client_session)
+	_, err := iam_client.RemoveUserFromGroup(&iam.RemoveUserFromGroupInput{GroupName: &BLACKHOLE_GROUPNAME, UserName: &username})
+	if err != nil {
+		handle_error("Removing User from Blackhole Group", username, err.Error())
+	}
+}
 func process_UsersCron(iam_client *iam.IAM) {
 	max_age := get_max_password_age(iam_client)
 	listAccountAliasesOutput, err := iam_client.ListAccountAliases(&iam.ListAccountAliasesInput{})
@@ -243,7 +321,7 @@ func init() {
 
 	GRACE_PERIOD_STR, ok = os.LookupEnv("GRACE_PERIOD")
 	checkEnvError(ok, GRACE_PERIOD_STR)
-	
+
 	var parseError error
 	GRACE_PERIOD, parseError = strconv.Atoi(GRACE_PERIOD_STR)
 	if parseError != nil {
