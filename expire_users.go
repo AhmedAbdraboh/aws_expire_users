@@ -41,8 +41,12 @@ func main() {
 	lambda.Start(LambdaHandler)
 }
 
+type EventDetail struct {
+	EventName string `json:"eventName"`
+}
 type Event struct {
-	Source string `json:"source"`
+	Source string      `json:"source"`
+	Detail EventDetail `json:"detail"`
 }
 
 func LambdaHandler(ctx context.Context, event Event) (string, error) {
@@ -64,6 +68,16 @@ func LambdaHandler(ctx context.Context, event Event) (string, error) {
 }
 
 func process_IAMEvent(event Event, ctx context.Context, iam_client *iam.IAM) {
+	api_call := event.Detail.EventName
+	if api_call == "CreateLoginProfile" {
+		process_CreateLoginProfile(event, ctx)
+	} else if api_call == "EnableMFADevice" {
+		process_EnableMFADevice(event, ctx)
+	} else if api_call == "DeactivateMFADevice" {
+		process_DeactivateMFADevice(event, ctx)
+	} else {
+		panic("Invalid API Call: " + api_call)
+	}
 
 }
 
@@ -194,7 +208,7 @@ func add_user_to_blackhole(username string, iam_client *iam.IAM) {
 		return
 	}
 	ACTION_SUMMARY = ACTION_SUMMARY + fmt.Sprintf("\nAdding %s to Blackhole Group", username)
-	_, err := iam_client.AddUserToGroup(&iam.AddUserToGroupInput{GroupName: BLACKHOLE_GROUPNAME, UserName: &username})
+	_, err := iam_client.AddUserToGroup(&iam.AddUserToGroupInput{GroupName: &BLACKHOLE_GROUPNAME, UserName: &username})
 	if err != nil {
 		handle_error("Removing User from Blackhole Group", username, err.Error())
 	}
@@ -224,31 +238,32 @@ func init() {
 	BLACKHOLE_GROUPNAME, ok := os.LookupEnv("BLACKHOLE_GROUPNAME")
 	checkEnvError(ok, BLACKHOLE_GROUPNAME)
 
-	ACTION_TOPIC_ARN, ok := os.LookupEnv("ACTION_TOPIC_ARN")
+	ACTION_TOPIC_ARN, ok = os.LookupEnv("ACTION_TOPIC_ARN")
 	checkEnvError(ok, ACTION_TOPIC_ARN)
 
-	GRACE_PERIOD_STR, ok := os.LookupEnv("GRACE_PERIOD")
+	GRACE_PERIOD_STR, ok = os.LookupEnv("GRACE_PERIOD")
 	checkEnvError(ok, GRACE_PERIOD_STR)
-
-	GRACE_PERIOD, parseError := strconv.Atoi(GRACE_PERIOD_STR)
+	
+	var parseError error
+	GRACE_PERIOD, parseError = strconv.Atoi(GRACE_PERIOD_STR)
 	if parseError != nil {
 		fmt.Println("Key Error: " + parseError.Error())
 		os.Exit(1)
 	}
 
-	DISABLE_USERS, ok := os.LookupEnv("DISABLE_USERS")
+	DISABLE_USERS, ok = os.LookupEnv("DISABLE_USERS")
 	checkEnvError(ok, DISABLE_USERS)
 
-	SEND_EMAIL, ok := os.LookupEnv("SEND_EMAIL")
+	SEND_EMAIL, ok = os.LookupEnv("SEND_EMAIL")
 	checkEnvError(ok, SEND_EMAIL)
 
-	FROM_ADDRESS, ok := os.LookupEnv("FROM_ADDRESS")
+	FROM_ADDRESS, ok = os.LookupEnv("FROM_ADDRESS")
 	checkEnvError(ok, FROM_ADDRESS)
 
-	EXPLANATION_FOOTER, ok := os.LookupEnv("EXPLANATION_FOOTER")
+	EXPLANATION_FOOTER, ok = os.LookupEnv("EXPLANATION_FOOTER")
 	checkEnvError(ok, EXPLANATION_FOOTER)
 
-	EXPLANATION_HEADER, ok := os.LookupEnv("EXPLANATION_HEADER")
+	EXPLANATION_HEADER, ok = os.LookupEnv("EXPLANATION_HEADER")
 	checkEnvError(ok, EXPLANATION_HEADER)
 
 	if DISABLE_USERS == "true" {
