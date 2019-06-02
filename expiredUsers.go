@@ -38,7 +38,7 @@ const (
 
 func main() {
 	fmt.Println("Loading function")
-	lambda.Start(LambdaHandler)
+	lambda.Start(expiredUsers)
 }
 
 type RequestParameters struct {
@@ -63,7 +63,7 @@ type Event struct {
 	Detail EventDetail `json:"detail"`
 }
 
-func LambdaHandler(ctx context.Context, event Event) (string, error) {
+func expiredUsers(ctx context.Context, event Event) (string, error) {
 
 	eventMarshal, marshalError := json.Marshal(event)
 	checkError(marshalError)
@@ -187,7 +187,7 @@ func process_UsersCron(iam_client *iam.IAM) {
 			}
 		}
 
-		response, err := iam_client.ListAccessKeys(&iam.ListAccessKeysInput{UserName: row.User})
+		response, err := iam_client.ListAccessKeys(&iam.ListAccessKeysInput{UserName: &row.User})
 		if err != nil {
 			continue
 		}
@@ -314,13 +314,13 @@ func get_max_password_age(iam_client *iam.IAM) *int64 {
 }
 func init() {
 	BLACKHOLE_GROUPNAME, ok := os.LookupEnv("BLACKHOLE_GROUPNAME")
-	checkEnvError(ok, BLACKHOLE_GROUPNAME)
+	checkEnvError(ok, "BLACKHOLE_GROUPNAME")
 
 	ACTION_TOPIC_ARN, ok = os.LookupEnv("ACTION_TOPIC_ARN")
-	checkEnvError(ok, ACTION_TOPIC_ARN)
+	checkEnvError(ok, "ACTION_TOPIC_ARN")
 
 	GRACE_PERIOD_STR, ok = os.LookupEnv("GRACE_PERIOD")
-	checkEnvError(ok, GRACE_PERIOD_STR)
+	checkEnvError(ok, "GRACE_PERIOD_STR")
 
 	var parseError error
 	GRACE_PERIOD, parseError = strconv.Atoi(GRACE_PERIOD_STR)
@@ -330,19 +330,19 @@ func init() {
 	}
 
 	DISABLE_USERS, ok = os.LookupEnv("DISABLE_USERS")
-	checkEnvError(ok, DISABLE_USERS)
+	checkEnvError(ok, "DISABLE_USERS")
 
 	SEND_EMAIL, ok = os.LookupEnv("SEND_EMAIL")
-	checkEnvError(ok, SEND_EMAIL)
+	checkEnvError(ok, "SEND_EMAIL")
 
 	FROM_ADDRESS, ok = os.LookupEnv("FROM_ADDRESS")
-	checkEnvError(ok, FROM_ADDRESS)
+	checkEnvError(ok, "FROM_ADDRESS")
 
 	EXPLANATION_FOOTER, ok = os.LookupEnv("EXPLANATION_FOOTER")
-	checkEnvError(ok, EXPLANATION_FOOTER)
+	checkEnvError(ok, "EXPLANATION_FOOTER")
 
 	EXPLANATION_HEADER, ok = os.LookupEnv("EXPLANATION_HEADER")
-	checkEnvError(ok, EXPLANATION_HEADER)
+	checkEnvError(ok, "EXPLANATION_HEADER")
 
 	if DISABLE_USERS == "true" {
 		expired_message = "\n\tYour Password is %d days post expiration. Your permissions have been revoked. "
